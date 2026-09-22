@@ -66,16 +66,12 @@ namespace SP4_1
                     {
                         lock (BufferLock)
                         {
-                            // Если буфер полон — ждём, пока потребитель освободит место.
                             while (Buffer.Count >= MaxBufferSize)
                             {
                                 Monitor.Wait(BufferLock);
                             }
-
                             Buffer.Enqueue(word);
                             Interlocked.Increment(ref _readCount);
-
-                            // Будим потребителя: появилось новое слово.
                             Monitor.Pulse(BufferLock);
                         }
                     }
@@ -83,49 +79,37 @@ namespace SP4_1
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Reader] Ошибка: {ex.Message}");
+                Console.WriteLine($"Reader Ошибка: {ex.Message}");
             }
             finally
             {
-                // Сообщаем потребителю, что больше данных не будет.
                 lock (BufferLock)
                 {
                     _readingCompleted = true;
-                    Monitor.PulseAll(BufferLock); // будим всех, кто ждёт
+                    Monitor.PulseAll(BufferLock);
                 }
             }
         }
 
-        // =====================================================================
-        //  Поток №2: забирает слова из буфера, переворачивает и пишет в файл
-        // =====================================================================
         private static void ReverseAndSave()
         {
             try
             {
                 using var writer = new StreamWriter(_outputPath, false, Encoding.UTF8);
-
                 while (true)
                 {
                     string word;
-
                     lock (BufferLock)
                     {
-                        // Ждём: либо появится слово, либо Reader закончит и буфер опустеет.
                         while (Buffer.Count == 0 && !_readingCompleted)
                         {
                             Monitor.Wait(BufferLock);
                         }
-
-                        // Условие выхода: чтение завершено и буфер пуст.
                         if (Buffer.Count == 0 && _readingCompleted)
                             break;
-
                         word = Buffer.Dequeue();
-                        Monitor.Pulse(BufferLock); // будим производителя: освободилось место
+                        Monitor.Pulse(BufferLock);
                     }
-
-                    // Обрабатываем слово ВНЕ lock, чтобы не держать блокировку зря.
                     var reversed = Reverse(word);
                     writer.WriteLine(reversed);
                     Interlocked.Increment(ref _writtenCount);
